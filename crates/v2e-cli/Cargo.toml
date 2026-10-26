@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "v2e-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Command-line front-ends (vmlinux-to-elf, kallsyms-finder, vmlinuz-decompressor)"
+
+[lints]
+workspace = true
+
+[dependencies]
+v2e-elf       = { path = "../v2e-elf" }
+v2e-arch      = { path = "../v2e-arch" }
+v2e-unpack    = { path = "../v2e-unpack" }
+v2e-kallsyms = { path = "../v2e-kallsyms" }
+v2e-db        = { path = "../v2e-db", features = ["db"] }
+
+anyhow      = { version = "1", default-features = false, features = ["std"] }
+clap        = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "derive"] }
+log         = { version = "0.4", default-features = false }
+env_logger  = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
+
+[[bin]]
+name = "vmlinux-to-elf"
+path = "src/bin/vmlinux_to_elf.rs"
+
+[[bin]]
+name = "kallsyms-finder"
+path = "src/bin/kallsyms_finder.rs"
+
+[[bin]]
+name = "vmlinuz-decompressor"
+path = "src/bin/vmlinuz_decompressor.rs"
+
+[dev-dependencies]

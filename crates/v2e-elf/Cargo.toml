@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "v2e-elf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Hand-rolled ELF reader/writer"
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = { version = "2", default-features = false }

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+/target/
+**/target/
+Cargo.lock.bak
+
+# Editor / OS cruft
+**/.DS_Store
+**/*.swp
+**/.idea/
+**/.vscode/
+**/*.rs.bk
+
+# Local test artefacts
+tests_output/
+test_kernels.txt

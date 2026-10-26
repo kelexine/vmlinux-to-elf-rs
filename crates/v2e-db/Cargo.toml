@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "v2e-db"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Optional kernel-version database access"
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+log = { version = "0.4", default-features = false }
+thiserror = { version = "2", default-features = false }
+
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }
+
+[features]
+default = ["db"]
+db = ["dep:rusqlite"]
