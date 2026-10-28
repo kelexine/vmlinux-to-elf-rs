@@ -248,8 +248,8 @@ mod tests {
     #[cfg(all(feature = "embedded", feature = "db"))]
     #[test]
     fn real_database_answers_the_queries_the_reference_makes() {
-        use crate::models::chrono_date::Date;
         use crate::KernelDb;
+        use crate::models::chrono_date::Date;
         let (db, dir) = real_db();
 
         // 4.19.127 is not in the table; the partial v4.19 row must be used and its
@@ -262,10 +262,11 @@ mod tests {
         assert_eq!(kv.release_date, Date::parse_iso("2018-10-22").unwrap());
         assert!(kv.download_url.ends_with("v4.19.tar.gz"));
 
-        assert!(db
-            .find_kernel_version("v99.1.1", "v99.1")
-            .unwrap()
-            .is_none());
+        assert!(
+            db.find_kernel_version("v99.1.1", "v99.1")
+                .unwrap()
+                .is_none()
+        );
 
         let em = db.find_emachine(183).unwrap().expect("EM_AARCH64");
         assert_eq!(em.elf_machine_str, "EM_AARCH64");
@@ -289,10 +290,11 @@ mod tests {
         assert_eq!(deb.docker_archive_name, "debian/eol:stretch");
 
         // Before any Debian release in the table there is simply no suggestion.
-        assert!(db
-            .find_debian_release(Date::parse_iso("1990-01-01").unwrap())
-            .unwrap()
-            .is_none());
+        assert!(
+            db.find_debian_release(Date::parse_iso("1990-01-01").unwrap())
+                .unwrap()
+                .is_none()
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

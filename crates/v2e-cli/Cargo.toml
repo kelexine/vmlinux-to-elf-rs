@@ -35,4 +35,8 @@ path = "src/bin/kallsyms_finder.rs"
 name = "vmlinuz-decompressor"
 path = "src/bin/vmlinuz_decompressor.rs"
 
+[[bin]]
+name = "extract-ikconfig"
+path = "src/bin/extract_ikconfig.rs"
+
 [dev-dependencies]

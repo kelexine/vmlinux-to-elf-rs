@@ -9,7 +9,7 @@
 
 #![forbid(unsafe_code)]
 
-use v2e_elf::{sh_flags, BitSize, ElfError, ElfFile, ElfSection, Endianness, SectionKind, ShType};
+use v2e_elf::{BitSize, ElfError, ElfFile, ElfSection, Endianness, SectionKind, ShType, sh_flags};
 
 fn section(kind: SectionKind, name: &str, addr: u64, size: u64, align: u64) -> ElfSection {
     let mut s = ElfSection::new(kind, name, Endianness::Little, BitSize::Bits64);

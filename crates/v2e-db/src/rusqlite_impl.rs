@@ -5,8 +5,8 @@
 #![forbid(unsafe_code)]
 
 use crate::models::{
-    chrono_date::Date, ArchitectureEmachineLink, DbError, DebianRelease, EmachineValue, KernelDb,
-    KernelRelevantFile, KernelVersion, KnownArchitecture,
+    ArchitectureEmachineLink, DbError, DebianRelease, EmachineValue, KernelDb, KernelRelevantFile,
+    KernelVersion, KnownArchitecture, chrono_date::Date,
 };
 use std::sync::{Mutex, MutexGuard, OnceLock};
 

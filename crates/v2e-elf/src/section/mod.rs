@@ -5,7 +5,7 @@
 #![forbid(unsafe_code)]
 
 use crate::endian::{BitSize, Endianness};
-use crate::enums::{sh_flags, special_section_index, ShType, StInfoBinding, StInfoType};
+use crate::enums::{ShType, StInfoBinding, StInfoType, sh_flags, special_section_index};
 use crate::error::ElfError;
 use crate::header::{parse_u16, parse_u32, parse_u64, ser_u16, ser_u32, ser_u64};
 use std::io::Write;

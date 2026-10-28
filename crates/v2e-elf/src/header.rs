@@ -10,7 +10,7 @@
 #![forbid(unsafe_code)]
 
 use crate::endian::{BitSize, Endianness};
-use crate::enums::{e_ident_indexes::EI_NIDENT, EType, EiClass, EiData, EiOsabi, EiVersion};
+use crate::enums::{EType, EiClass, EiData, EiOsabi, EiVersion, e_ident_indexes::EI_NIDENT};
 use crate::error::ElfError;
 use std::io::Write;
 
@@ -364,27 +364,15 @@ pub fn u64_from(data: &[u8], off: usize, be: bool) -> u64 {
 }
 #[inline]
 pub fn u16_bytes(v: u16, be: bool) -> [u8; 2] {
-    if be {
-        v.to_be_bytes()
-    } else {
-        v.to_le_bytes()
-    }
+    if be { v.to_be_bytes() } else { v.to_le_bytes() }
 }
 #[inline]
 pub fn u32_bytes(v: u32, be: bool) -> [u8; 4] {
-    if be {
-        v.to_be_bytes()
-    } else {
-        v.to_le_bytes()
-    }
+    if be { v.to_be_bytes() } else { v.to_le_bytes() }
 }
 #[inline]
 pub fn u64_bytes(v: u64, be: bool) -> [u8; 8] {
-    if be {
-        v.to_be_bytes()
-    } else {
-        v.to_le_bytes()
-    }
+    if be { v.to_be_bytes() } else { v.to_le_bytes() }
 }
 
 pub use {u16_bytes as ser_u16, u32_bytes as ser_u32, u64_bytes as ser_u64};

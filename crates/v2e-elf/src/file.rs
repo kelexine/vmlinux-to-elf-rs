@@ -7,13 +7,14 @@
 use crate::endian::{BitSize, Endianness};
 use crate::enums::ShType;
 use crate::enums::{
+    EiClass, EiData,
     e_ident_indexes::{EI_CLASS, EI_DATA, EI_NIDENT},
     p_flags, p_type,
     sh_flags::{self, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE},
-    special_section_index, EiClass, EiData,
+    special_section_index,
 };
 use crate::error::ElfError;
-use crate::header::{ElfFileHeader, ELF_MAGIC};
+use crate::header::{ELF_MAGIC, ElfFileHeader};
 use crate::program::ElfProgramHeaderEntry;
 use crate::section::{ElfSection, ElfSectionHeader, ElfStrtab, SectionKind};
 use std::io::Write;

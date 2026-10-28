@@ -29,7 +29,7 @@ pub mod rusqlite_impl;
 pub use rusqlite_impl::RusqliteKernelDb;
 
 pub mod locate;
-pub use locate::{resolve_db_path, user_data_dir, DB_FILE_NAME, ENV_DB_PATH};
+pub use locate::{DB_FILE_NAME, ENV_DB_PATH, resolve_db_path, user_data_dir};
 
 pub mod models;
 pub use models::{

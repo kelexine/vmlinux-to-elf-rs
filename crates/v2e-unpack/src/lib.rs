@@ -43,7 +43,7 @@
 #![allow(missing_docs)]
 
 pub mod signature;
-pub use signature::{Signature, KNOWN_COMPRESSION_SIGS};
+pub use signature::{KNOWN_COMPRESSION_SIGS, Signature};
 
 pub mod decompress;
 pub use decompress::{DecompressOperation, DecompressOperationType, VmlinuzDecompressor};
@@ -52,3 +52,6 @@ pub mod boot;
 pub use boot::{AndroidBootImage, QualcommUncompressedImg, UImageHeader};
 
 pub mod codec;
+
+pub mod ikconfig;
+pub use ikconfig::extract_ikconfig;

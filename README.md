@@ -62,7 +62,7 @@ crates/
 ├── v2e-unpack     — compression + boot-image unpacker (port of core/auto_unpack.py)
 ├── v2e-kallsyms   — kallsyms locator + parser (port of core/kallsyms.py)
 ├── v2e-db         — optional kernel-version DB access (port of kernel_db/database.py)
-└── v2e-cli        — three binaries (vmlinux-to-elf, kallsyms-finder, vmlinuz-decompressor)
+└── v2e-cli        — four binaries (vmlinux-to-elf, kallsyms-finder, vmlinuz-decompressor, extract-ikconfig)
 tests/
 ├── fixtures/
 │   └── elf_tests/   — the 6 ELF fixtures shipped with the original Python tool
@@ -85,6 +85,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 vmlinux-to-elf <input_kernel.bin> <output_kernel.elf>
 kallsyms-finder <input_kernel.bin> [--output FOO]
 vmlinuz-decompressor <input_kernel.bin> <output_kernel.bin>
+extract-ikconfig <kernel-image>
 ```
 
 All three binaries accept `-V`/`--version` and `-h`/`--help`.

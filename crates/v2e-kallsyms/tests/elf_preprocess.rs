@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use v2e_elf::{sh_flags, BitSize, ElfFile, ElfSection, Endianness, SectionKind};
+use v2e_elf::{BitSize, ElfFile, ElfSection, Endianness, SectionKind, sh_flags};
 use v2e_kallsyms::elf_preprocess::preprocess_elf_rela_table;
 
 const DATA_ADDR: u64 = 0xffff_0000_0000_1000;

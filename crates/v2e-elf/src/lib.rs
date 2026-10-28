@@ -21,15 +21,15 @@ pub mod section;
 pub use endian::{BitSize, Endianness};
 pub use error::ElfError;
 pub use file::{ElfFile, SectionLocator};
-pub use header::{ElfFileHeader, ELF32_HEADER_SIZE, ELF64_HEADER_SIZE, ELF_MAGIC};
-pub use program::{ElfProgramHeaderEntry, ELF32_PHDR_SIZE, ELF64_PHDR_SIZE};
+pub use header::{ELF_MAGIC, ELF32_HEADER_SIZE, ELF64_HEADER_SIZE, ElfFileHeader};
+pub use program::{ELF32_PHDR_SIZE, ELF64_PHDR_SIZE, ElfProgramHeaderEntry};
 pub use section::{
-    ElfSection, ElfSectionHeader, ElfStrtab, RelocationEntry, SectionKind, SymbolEntry,
-    ELF32_SHDR_SIZE, ELF64_SHDR_SIZE,
+    ELF32_SHDR_SIZE, ELF64_SHDR_SIZE, ElfSection, ElfSectionHeader, ElfStrtab, RelocationEntry,
+    SectionKind, SymbolEntry,
 };
 
 // Re-export enums for ergonomic access.
+pub use enums::{EType, EiClass, EiData, EiOsabi, EiVersion, ShType, StInfoBinding, StInfoType};
 pub use enums::{
     e_ident_indexes, p_flags, p_type, sh_flags, special_section_index, special_segment_index,
 };
-pub use enums::{EType, EiClass, EiData, EiOsabi, EiVersion, ShType, StInfoBinding, StInfoType};

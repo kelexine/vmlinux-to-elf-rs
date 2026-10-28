@@ -4,7 +4,7 @@
 
 #![forbid(unsafe_code)]
 
-use ruzstd::StreamingDecoder;
+use ruzstd::decoding::StreamingDecoder;
 use std::io::Read;
 
 pub fn decompress(input: &[u8]) -> Option<Vec<u8>> {

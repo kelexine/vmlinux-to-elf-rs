@@ -11,9 +11,9 @@ use crate::detect::{
 };
 use crate::elf_preprocess::preprocess_elf_rela_table;
 use crate::error::KallsymsError;
-use crate::rela::{Elf64Rela, RELA64_SIZE, R_AARCH64_ABS64, R_AARCH64_RELATIVE};
+use crate::rela::{Elf64Rela, R_AARCH64_ABS64, R_AARCH64_RELATIVE, RELA64_SIZE};
 use crate::symbol::{KallsymsSymbol, KallsymsSymbolType};
-use crate::version::{find_linux_kernel_version, KernelVersionInfo};
+use crate::version::{KernelVersionInfo, find_linux_kernel_version};
 use v2e_arch::{ArchitectureDetector, ArchitectureName};
 
 /// Configuration for `KallsymsFinder`.
