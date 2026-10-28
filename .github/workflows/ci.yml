@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Author: kelexine <https://github.com/kelexine>
 name: CI
 
 on:
@@ -9,13 +11,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
 
 jobs:
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -25,26 +34,70 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Run tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --locked
 
+  # Name kept stable so existing required-check rules still match.
   check-no-default:
     name: Check (--no-default-features)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Check without default features
-        run: cargo check --workspace --no-default-features
+        run: cargo check --workspace --no-default-features --locked
+      - name: Test without default features
+        run: cargo test --workspace --no-default-features --locked
+
+  # Native arm64 runner: no cross C toolchain needed for lzma-sys/libsqlite3-sys.
+  test-aarch64:
+    name: Test (aarch64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Run tests
+        run: cargo test --workspace --all-targets --locked
+
+  # Termux/Android build. Advisory until it has been green once; then drop
+  # continue-on-error and add it to the required checks.
+  android:
+    name: Build (aarch64-linux-android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: aarch64-linux-android
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - name: Build CLI
+        run: cargo ndk --target arm64-v8a --platform 24 build --release --locked -p v2e-cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vmlinux-to-elf-aarch64-linux-android
+          path: |
+            target/aarch64-linux-android/release/vmlinux-to-elf
+            target/aarch64-linux-android/release/kallsyms-finder
+            target/aarch64-linux-android/release/vmlinuz-decompressor
+          if-no-files-found: error
+          retention-days: 14

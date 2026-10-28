@@ -1,0 +1,99 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Author: kelexine <https://github.com/kelexine>
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Tag must match crate version
+        run: |
+          ver=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "v2e-cli") | .version')
+          if [ "v${ver}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match crate version v${ver}"
+            exit 1
+          fi
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, ndk: false }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, ndk: false }
+          - { target: aarch64-linux-android, os: ubuntu-latest, ndk: true }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        if: matrix.ndk
+        with:
+          tool: cargo-ndk
+      - name: Build (native)
+        if: ${{ !matrix.ndk }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET" -p v2e-cli
+      - name: Build (NDK)
+        if: matrix.ndk
+        run: cargo ndk --target arm64-v8a --platform 24 build --release --locked -p v2e-cli
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          name="vmlinux-to-elf-${GITHUB_REF_NAME}-${TARGET}"
+          mkdir "$name"
+          for b in vmlinux-to-elf kallsyms-finder vmlinuz-decompressor; do
+            cp "target/${TARGET}/release/${b}" "${name}/"
+          done
+          cp LICENSE README.md "${name}/"
+          tar -czf "${name}.tar.gz" "$name"
+          sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            *.tar.gz
+            *.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
