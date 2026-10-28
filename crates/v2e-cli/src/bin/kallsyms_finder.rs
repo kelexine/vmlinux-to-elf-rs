@@ -33,6 +33,13 @@ struct Args {
     /// auto-detect).
     #[arg(long = "base-address", value_name = "HEX_NUMBER")]
     base_address: Option<u64>,
+    /// Use this kernel database file instead of searching the standard
+    /// locations (the `V2E_DB_PATH` environment variable works too).
+    #[arg(long = "db-path", value_name = "FILE", conflicts_with = "no_db")]
+    db_path: Option<PathBuf>,
+    /// Skip the kernel database lookup (source links, build environment).
+    #[arg(long = "no-db")]
+    no_db: bool,
 }
 
 fn main() -> ExitCode {
@@ -49,10 +56,19 @@ fn main() -> ExitCode {
 
     let decompressed = VmlinuzDecompressor::new(&raw_input, false).decompressed;
 
+    let db = match v2e_cli::db::open_kernel_db(args.db_path.as_deref(), args.no_db) {
+        Ok(db) => db,
+        Err(e) => {
+            log::error!("[!] {e}");
+            return ExitCode::FAILURE;
+        },
+    };
+
     let cfg = KallsymsFinderConfig {
         bit_size: args.bit_size,
         override_relative_base: args.use_absolute,
         explicit_base_address: args.base_address,
+        db,
     };
 
     let finder = match KallsymsFinder::new(decompressed, cfg) {

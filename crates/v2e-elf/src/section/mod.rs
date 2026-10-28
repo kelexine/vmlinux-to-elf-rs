@@ -639,11 +639,7 @@ impl ElfSection {
         match kind {
             SectionKind::Symtab | SectionKind::Dynsym => {
                 let esz = SymbolEntry::entry_size(bits);
-                let n = if esz == 0 {
-                    0
-                } else {
-                    (self.header.sh_size as usize) / esz
-                };
+                let n = (self.header.sh_size as usize).checked_div(esz).unwrap_or(0);
                 self.symbols.clear();
                 self.symbols.reserve(n);
                 for i in 0..n {
@@ -660,11 +656,7 @@ impl ElfSection {
             SectionKind::Rela | SectionKind::Rel => {
                 let has_addend = matches!(kind, SectionKind::Rela);
                 let esz = RelocationEntry::entry_size(bits, has_addend);
-                let n = if esz == 0 {
-                    0
-                } else {
-                    (self.header.sh_size as usize) / esz
-                };
+                let n = (self.header.sh_size as usize).checked_div(esz).unwrap_or(0);
                 self.relocations.clear();
                 self.relocations.reserve(n);
                 for i in 0..n {

@@ -9,6 +9,7 @@ use crate::detect::{
     names::find_kallsyms_names, num_syms::find_kallsyms_num_syms,
     token_index::find_kallsyms_token_index, token_table::find_kallsyms_token_table,
 };
+use crate::elf_preprocess::preprocess_elf_rela_table;
 use crate::error::KallsymsError;
 use crate::rela::{Elf64Rela, RELA64_SIZE, R_AARCH64_ABS64, R_AARCH64_RELATIVE};
 use crate::symbol::{KallsymsSymbol, KallsymsSymbolType};
@@ -24,6 +25,9 @@ pub struct KallsymsFinderConfig {
     pub override_relative_base: bool,
     /// `--base-address` — force the output ELF base address.
     pub explicit_base_address: Option<u64>,
+    /// Kernel database used for informational logging only. `None` skips the
+    /// lookup entirely.
+    pub db: Option<std::sync::Arc<dyn v2e_db::KernelDb>>,
 }
 
 /// Main structure that holds kallsyms data.
@@ -86,7 +90,11 @@ impl KallsymsFinder {
     /// # Errors
     /// Returns [`KallsymsError`] on any failure.
     pub fn new(kernel_img: Vec<u8>, cfg: KallsymsFinderConfig) -> Result<Self, KallsymsError> {
-        let mut kernel_img = kernel_img;
+        // Step 0: ELF input? Pre-apply `.rela.dyn` so relocations that patch
+        // the kallsyms tables themselves are already resolved.
+        let pre = preprocess_elf_rela_table(kernel_img)?;
+        let mut kernel_img = pre.image;
+        let elf_relocated = pre.is_relocated;
         let mut is_64_bits = match cfg.bit_size {
             Some(64) => true,
             Some(32) => false,
@@ -123,6 +131,11 @@ impl KallsymsFinder {
                 .unwrap_or("(unknown)")
         );
 
+        // Step 2b: kernel database lookup (informational only).
+        if let Some(db) = cfg.db.as_deref() {
+            crate::db_info::log_db_information(db, &version, elf_machine);
+        }
+
         // Step 3: find kallsyms_token_table.
         let token_table = find_kallsyms_token_table(&kernel_img)?;
         let tt_offset = token_table.offset;
@@ -156,12 +169,12 @@ impl KallsymsFinder {
         let num_syms_offset = num_syms.offset;
 
         // Step 8: ARM64 RELA scan + apply (only for 64-bit aarch64).
-        let mut is_relocated = false;
+        let mut is_relocated = elf_relocated;
         let mut elf64_rela: Vec<Elf64Rela> = Vec::new();
         let mut elf64_rela_start: usize = 0;
         let mut elf64_rela_end_excl: usize = 0;
         let mut kernel_text_candidate: Option<u64> = cfg.explicit_base_address;
-        if is_64_bits && architecture == Some(ArchitectureName::aarch64) {
+        if is_64_bits && !is_relocated && architecture == Some(ArchitectureName::aarch64) {
             if let Some((rela, ktc, rstart, rend)) =
                 find_elf64_rela(&kernel_img, cfg.explicit_base_address)
             {

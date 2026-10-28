@@ -176,6 +176,7 @@ pub fn build_elf(
         // Populate symbols. At this point kernel.sections = [NULL, .kernel,
         // (.kernel2 if RELA), .bss]. The section indices are stable because
         // we push symtab/strtab/shstrtab/.rela.dyn AFTER this loop.
+        let locator = kernel.section_locator();
         for s in &finder.symbols {
             let mut sym = SymbolEntry::default();
             sym.symbol_name = s.name.clone();
@@ -202,14 +203,13 @@ pub fn build_elf(
             if matches!(s.symbol_type, Some(KallsymsSymbolType::Absolute)) {
                 sym.st_shndx = SHN_ABS;
             } else {
-                // Find the section that contains this address.
-                for (i, sect) in kernel.sections.iter().enumerate() {
-                    let start = sect.header.sh_addr;
-                    let end = start + sect.header.sh_size;
-                    if start != 0 && start <= s.virtual_address && s.virtual_address <= end {
-                        sym.st_shndx = i as u16;
-                        break;
-                    }
+                // Find the section that contains this address. A symbol that
+                // sits exactly on a boundary belongs to the section that
+                // starts there (matches the reference tool), which is what
+                // `find_section_index` implements; a naive first-match scan
+                // would pick the preceding section whose inclusive end it is.
+                if let Some(i) = locator.find(s.virtual_address) {
+                    sym.st_shndx = u16::try_from(i).unwrap_or(0);
                 }
             }
             symtab.symbols.push(sym);

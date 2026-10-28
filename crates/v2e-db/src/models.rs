@@ -116,7 +116,7 @@ pub struct DebianRelease {
 ///
 /// All methods may return [`DbError`] when the underlying store is
 /// unavailable or corrupt; callers should propagate the error.
-pub trait KernelDb {
+pub trait KernelDb: std::fmt::Debug + Send + Sync {
     /// `KernelVersion.select().where(version_string == full)` then
     /// `.where(version_string == partial)`.
     ///
@@ -196,44 +196,6 @@ impl KernelDb for NoopKernelDb {
     }
 }
 
-/// Resolve the database file path. Returns `None` if no candidate exists.
-///
-/// Order (per `lib.rs` docs):
-/// 1. `db_path` arg (CLI override)
-/// 2. `V2E_DB_PATH` env var
-/// 3. `<exe_dir>/database.sqlite3`
-/// 4. `./database.sqlite3`
-pub fn resolve_db_path(db_path: Option<&Path>) -> Option<std::path::PathBuf> {
-    // 1. explicit
-    if let Some(p) = db_path {
-        if p.is_file() {
-            return Some(p.to_path_buf());
-        }
-    }
-    // 2. env
-    if let Ok(s) = std::env::var("V2E_DB_PATH") {
-        let p = std::path::PathBuf::from(s);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    // 3. exe_dir
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let p = parent.join("database.sqlite3");
-            if p.is_file() {
-                return Some(p);
-            }
-        }
-    }
-    // 4. cwd
-    let p = std::path::PathBuf::from("./database.sqlite3");
-    if p.is_file() {
-        return Some(p);
-    }
-    None
-}
-
 /// Error type for DB operations.
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -247,6 +209,12 @@ pub enum DbError {
     /// Date parsing failure.
     #[error("date parse error: {0}")]
     Date(String),
+    /// The connection lock was poisoned by a panic in another thread.
+    #[error("database connection lock poisoned")]
+    Locked,
+    /// Failure while unpacking the embedded database.
+    #[error("could not unpack the embedded database: {0}")]
+    Extract(String),
 }
 
 /// Lightweight date wrapper. We use our own to avoid pulling in `chrono`
@@ -273,9 +241,18 @@ pub mod chrono_date {
             Self { year, month, day }
         }
 
-        /// Parse `YYYY-MM-DD`. Returns `None` on malformed input.
+        /// Parse `YYYY-MM-DD`, optionally followed by a time and UTC offset
+        /// (`2018-10-22 07:37:37+01:00` or `…T…`), which is how the
+        /// `kernel_version.release_date` column is stored. The calendar date
+        /// is taken as written, i.e. in the stored offset, like the reference
+        /// tool does. Returns `None` on malformed input.
         #[must_use]
         pub fn parse_iso(s: &str) -> Option<Self> {
+            let s = match s.as_bytes().get(10) {
+                None => s,
+                Some(b' ' | b'T') => s.get(..10)?,
+                Some(_) => return None,
+            };
             let mut parts = s.split('-');
             let year: i32 = parts.next()?.parse().ok()?;
             let month: u8 = parts.next()?.parse().ok()?;

@@ -37,6 +37,29 @@ pub struct ElfFile {
     pub symbol_table_index: Option<usize>,
 }
 
+/// Immutable address → section-index map built by [`ElfFile::section_locator`].
+///
+/// Selection rule (identical to the reference implementation): among sections
+/// with a non-zero `sh_addr`, pick the *last* one whose start is `<= address`,
+/// then accept it only if `address <= sh_addr + sh_size` (inclusive end).
+#[derive(Clone, Debug, Default)]
+pub struct SectionLocator {
+    /// `(sh_addr, sh_size, section index)`, sorted by `sh_addr` (stable).
+    entries: Vec<(u64, u64, usize)>,
+}
+
+impl SectionLocator {
+    /// Index of the section containing `address`, if any.
+    #[must_use]
+    pub fn find(&self, address: u64) -> Option<usize> {
+        let upto = self
+            .entries
+            .partition_point(|&(start, _, _)| start <= address);
+        let &(start, size, idx) = self.entries.get(upto.checked_sub(1)?)?;
+        (address <= start.saturating_add(size)).then_some(idx)
+    }
+}
+
 impl ElfFile {
     /// Construct an empty ELF object with the given endianness + word size.
     #[must_use]
@@ -170,34 +193,36 @@ impl ElfFile {
     /// Binary-search the section that contains `address`.
     #[must_use]
     pub fn find_section(&self, address: u64) -> Option<&ElfSection> {
-        // Filter to allocatable sections with non-zero sh_addr, sort by sh_addr.
-        let mut idxs: Vec<usize> = self
+        self.find_section_index(address).map(|i| &self.sections[i])
+    }
+
+    /// Index (into [`ElfFile::sections`]) of the section that contains `address`.
+    ///
+    /// Mirrors the reference implementation exactly: only sections with a
+    /// non-zero `sh_addr` participate, they are ordered by `sh_addr` (stable,
+    /// so ties keep declaration order), and the *last* section whose start is
+    /// `<= address` is selected. The end bound is inclusive. Consequently an
+    /// address that sits exactly on a section boundary resolves to the section
+    /// that *starts* there, not the one that ends there.
+    #[must_use]
+    pub fn find_section_index(&self, address: u64) -> Option<usize> {
+        self.section_locator().find(address)
+    }
+
+    /// Snapshot of the section address map for repeated lookups (e.g. one per
+    /// kallsyms symbol). Build once, call [`SectionLocator::find`] many times.
+    #[must_use]
+    pub fn section_locator(&self) -> SectionLocator {
+        let mut entries: Vec<(u64, u64, usize)> = self
             .sections
             .iter()
             .enumerate()
             .filter(|(_, s)| s.header.sh_addr > 0)
-            .map(|(i, _)| i)
+            .map(|(i, s)| (s.header.sh_addr, s.header.sh_size, i))
             .collect();
-        idxs.sort_by_key(|&i| self.sections[i].header.sh_addr);
-        if idxs.is_empty() {
-            return None;
-        }
-        let mut lo = 0usize;
-        let mut hi = idxs.len() - 1;
-        while lo < hi {
-            let mid = (lo + hi + 1).div_ceil(2);
-            if self.sections[idxs[mid]].header.sh_addr <= address {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        let s = &self.sections[idxs[lo]];
-        if s.header.sh_addr <= address && address <= s.header.sh_addr + s.header.sh_size {
-            Some(s)
-        } else {
-            None
-        }
+        // Stable: sections sharing an address keep declaration order.
+        entries.sort_by_key(|&(start, _, _)| start);
+        SectionLocator { entries }
     }
 
     /// Serialize the ELF file to `out`. Layout produced:
@@ -277,19 +302,31 @@ impl ElfFile {
         // sh_addralign. Skip NOBITS for size accounting (sh_offset still set).
         let mut cursor = sh_end;
         for s in &mut sections {
-            // Skip writing contents for NOBITS.
+            // Alignment (the reference rounds the offset up to `sh_addralign`
+            // for *every* section, including NOBITS ones).
+            let overflow = || ElfError::LayoutOverflow {
+                section: s.section_name.clone(),
+            };
+            let align = usize::try_from(s.header.sh_addralign.max(1)).map_err(|_| overflow())?;
+            let aligned = if align > 1 {
+                cursor
+                    .div_ceil(align)
+                    .checked_mul(align)
+                    .ok_or_else(overflow)?
+            } else {
+                cursor
+            };
+            // NOBITS: record the aligned offset but write nothing and do not
+            // advance the running cursor, so the next section starts where the
+            // previous one ended (byte-compatible with the reference tool).
             if matches!(
                 SectionKind::from_sh_type(s.header.sh_type),
                 SectionKind::Nobits
             ) {
-                s.header.sh_offset = cursor as u64;
+                s.header.sh_offset = aligned as u64;
                 continue;
             }
-            // Alignment.
-            let align = s.header.sh_addralign.max(1) as usize;
-            if align > 1 {
-                cursor = (cursor + align - 1) & !(align - 1);
-            }
+            cursor = aligned;
             s.header.sh_offset = cursor as u64;
             if !matches!(
                 SectionKind::from_sh_type(s.header.sh_type),
@@ -297,7 +334,10 @@ impl ElfFile {
             ) {
                 s.header.sh_size = s.section_contents.len() as u64;
             }
-            cursor += s.header.sh_size as usize;
+            // Non-NOBITS here, so sh_size == section_contents.len() (fits usize).
+            cursor = cursor
+                .checked_add(s.section_contents.len())
+                .ok_or_else(overflow)?;
         }
 
         // Recompute symtab sh_link to point to its strtab in the filtered list.

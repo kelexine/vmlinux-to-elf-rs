@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 #![allow(missing_docs)]
 
+pub mod db;
 pub mod logging;
 pub mod pretty;
 pub mod symbolizer;

@@ -20,7 +20,7 @@ pub mod section;
 // Convenience re-exports.
 pub use endian::{BitSize, Endianness};
 pub use error::ElfError;
-pub use file::ElfFile;
+pub use file::{ElfFile, SectionLocator};
 pub use header::{ElfFileHeader, ELF32_HEADER_SIZE, ELF64_HEADER_SIZE, ELF_MAGIC};
 pub use program::{ElfProgramHeaderEntry, ELF32_PHDR_SIZE, ELF64_PHDR_SIZE};
 pub use section::{

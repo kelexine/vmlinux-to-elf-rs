@@ -19,7 +19,7 @@ thiserror = { version = "2", default-features = false }
 crc32fast = { version = "1", default-features = false }
 log       = { version = "0.4", default-features = false }
 
-# Compression codecs:
+# Compression codecs (decisions 3 + 13):
 flate2   = { version = "1", default-features = false, features = ["miniz_oxide"] }
 xz2      = { version = "0.1" }
 lzma-rs  = { version = "0.3", default-features = false }

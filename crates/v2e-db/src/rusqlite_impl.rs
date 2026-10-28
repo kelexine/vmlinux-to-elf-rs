@@ -8,12 +8,24 @@ use crate::models::{
     chrono_date::Date, ArchitectureEmachineLink, DbError, DebianRelease, EmachineValue, KernelDb,
     KernelRelevantFile, KernelVersion, KnownArchitecture,
 };
-use std::sync::OnceLock;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// Lazily-opened, read-only SQLite connection.
+///
+/// `rusqlite::Connection` is `Send` but not `Sync`; the `Mutex` makes the
+/// handle shareable (`Arc<dyn KernelDb>`) while keeping opening lazy.
 pub struct RusqliteKernelDb {
     path: std::path::PathBuf,
-    conn: OnceLock<rusqlite::Connection>,
+    conn: OnceLock<Mutex<rusqlite::Connection>>,
+}
+
+impl std::fmt::Debug for RusqliteKernelDb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RusqliteKernelDb")
+            .field("path", &self.path)
+            .field("opened", &self.conn.get().is_some())
+            .finish()
+    }
 }
 
 impl RusqliteKernelDb {
@@ -25,20 +37,22 @@ impl RusqliteKernelDb {
         }
     }
 
-    fn conn(&self) -> Result<&rusqlite::Connection, DbError> {
-        if let Some(existing) = self.conn.get() {
-            return Ok(existing);
-        }
-        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
-            | rusqlite::OpenFlags::SQLITE_OPEN_URI;
-        let opened =
-            rusqlite::Connection::open_with_flags(&self.path, flags).map_err(DbError::Rusqlite)?;
-        let _ = self.conn.set(opened);
-        Ok(self
-            .conn
-            .get()
-            .expect("connection just set or already present"))
+    fn conn(&self) -> Result<MutexGuard<'_, rusqlite::Connection>, DbError> {
+        let cell = match self.conn.get() {
+            Some(existing) => existing,
+            None => {
+                let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+                    | rusqlite::OpenFlags::SQLITE_OPEN_URI;
+                let opened = rusqlite::Connection::open_with_flags(&self.path, flags)?;
+                // If another thread won the race its connection is used; ours is dropped.
+                let _ = self.conn.set(Mutex::new(opened));
+                self.conn
+                    .get()
+                    .ok_or_else(|| DbError::NotFound(self.path.clone()))?
+            },
+        };
+        cell.lock().map_err(|_| DbError::Locked)
     }
 }
 
@@ -49,28 +63,19 @@ impl KernelDb for RusqliteKernelDb {
         partial: &str,
     ) -> Result<Option<KernelVersion>, DbError> {
         let conn = self.conn()?;
-        let mut stmt = conn
-            .prepare(
+        let lookup = |version: &str| -> Result<Option<KernelVersion>, DbError> {
+            let mut stmt = conn.prepare_cached(
                 "SELECT version_string, kernel_source, browse_url, download_url, git_commit, release_date \
                  FROM kernel_version WHERE version_string = ? LIMIT 1",
-            )
-            .map_err(DbError::Rusqlite)?;
-        let mut rows = stmt.query([full]).map_err(DbError::Rusqlite)?;
-        if let Some(row) = rows.next().map_err(DbError::Rusqlite)? {
-            return Ok(Some(row_to_kernel_version(row)));
+            )?;
+            let mut rows = stmt.query([version])?;
+            rows.next()?.map(row_to_kernel_version).transpose()
+        };
+        // Exact `vX.Y.Z` first, then the `vX.Y` fallback (same order as the reference).
+        match lookup(full)? {
+            Some(found) => Ok(Some(found)),
+            None => lookup(partial),
         }
-        // Fallback to partial.
-        let mut stmt2 = conn
-            .prepare(
-                "SELECT version_string, kernel_source, browse_url, download_url, git_commit, release_date \
-                 FROM kernel_version WHERE version_string = ? LIMIT 1",
-            )
-            .map_err(DbError::Rusqlite)?;
-        let mut rows2 = stmt2.query([partial]).map_err(DbError::Rusqlite)?;
-        if let Some(row) = rows2.next().map_err(DbError::Rusqlite)? {
-            return Ok(Some(row_to_kernel_version(row)));
-        }
-        Ok(None)
     }
 
     fn find_emachine(&self, em: i64) -> Result<Option<EmachineValue>, DbError> {
@@ -97,7 +102,7 @@ impl KernelDb for RusqliteKernelDb {
                  FROM architecture_e_machine_link l \
                  JOIN known_architecture a ON a.architecture_code = l.architecture_id \
                  JOIN e_machine_value e ON e.elf_machine_str = l.e_machine_id \
-                 WHERE l.e_machine_id = ?",
+                 WHERE l.e_machine_id = ? ORDER BY l.rowid",
             )
             .map_err(DbError::Rusqlite)?;
         let rows = stmt
@@ -133,13 +138,13 @@ impl KernelDb for RusqliteKernelDb {
         let mut stmt = if arch_code.is_some() {
             conn.prepare(
                 "SELECT id, release_id, file_name, architecture_code, vcs_browser_url \
-                 FROM kernel_relevant_file WHERE release_id = ? AND architecture_code = ?",
+                 FROM kernel_relevant_file WHERE release_id = ? AND architecture_code = ? ORDER BY id",
             )
             .map_err(DbError::Rusqlite)?
         } else {
             conn.prepare(
                 "SELECT id, release_id, file_name, architecture_code, vcs_browser_url \
-                 FROM kernel_relevant_file WHERE release_id = ? AND architecture_code IS NULL",
+                 FROM kernel_relevant_file WHERE release_id = ? AND architecture_code IS NULL ORDER BY id",
             )
             .map_err(DbError::Rusqlite)?
         };
@@ -182,17 +187,18 @@ impl KernelDb for RusqliteKernelDb {
     }
 }
 
-fn row_to_kernel_version(row: &rusqlite::Row<'_>) -> KernelVersion {
-    let release_date_str: String = row.get(5).unwrap_or_default();
-    let release_date = Date::parse_iso(&release_date_str).unwrap_or_default();
-    KernelVersion {
-        version_string: row.get(0).unwrap_or_default(),
-        kernel_source: row.get(1).unwrap_or_default(),
-        browse_url: row.get(2).ok(),
-        download_url: row.get(3).unwrap_or_default(),
-        git_commit: row.get(4).ok(),
+fn row_to_kernel_version(row: &rusqlite::Row<'_>) -> Result<KernelVersion, DbError> {
+    let release_date_str: String = row.get(5)?;
+    let release_date =
+        Date::parse_iso(&release_date_str).ok_or_else(|| DbError::Date(release_date_str))?;
+    Ok(KernelVersion {
+        version_string: row.get(0)?,
+        kernel_source: row.get(1)?,
+        browse_url: row.get(2)?,
+        download_url: row.get(3)?,
+        git_commit: row.get(4)?,
         release_date,
-    }
+    })
 }
 
 fn row_to_relevant_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<KernelRelevantFile> {

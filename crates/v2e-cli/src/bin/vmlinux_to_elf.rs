@@ -2,7 +2,6 @@
 
 #![forbid(unsafe_code)]
 
-use anyhow::{anyhow, Result};
 use clap::Parser;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -45,6 +44,13 @@ struct Args {
     /// Assume kallsyms offsets are absolute addresses.
     #[arg(long = "use-absolute")]
     use_absolute: bool,
+    /// Use this kernel database file instead of searching the standard
+    /// locations (the `V2E_DB_PATH` environment variable works too).
+    #[arg(long = "db-path", value_name = "FILE", conflicts_with = "no_db")]
+    db_path: Option<PathBuf>,
+    /// Skip the kernel database lookup (source links, build environment).
+    #[arg(long = "no-db")]
+    no_db: bool,
 }
 
 fn main() -> ExitCode {
@@ -78,10 +84,19 @@ fn main() -> ExitCode {
         decompressed
     };
 
+    let db = match v2e_cli::db::open_kernel_db(args.db_path.as_deref(), args.no_db) {
+        Ok(db) => db,
+        Err(e) => {
+            log::error!("[!] {e}");
+            return ExitCode::FAILURE;
+        },
+    };
+
     let cfg = KallsymsFinderConfig {
         bit_size: args.bit_size,
         override_relative_base: args.use_absolute,
         explicit_base_address: args.base_address,
+        db,
     };
 
     let finder = match KallsymsFinder::new(file_contents.clone(), cfg) {
@@ -122,11 +137,5 @@ fn main() -> ExitCode {
         args.output_file.display()
     );
 
-    let _ = anyhow::Ok::<()>(());
     ExitCode::SUCCESS
-}
-
-#[allow(dead_code)]
-fn unused() -> Result<()> {
-    Err(anyhow!("placeholder"))
 }

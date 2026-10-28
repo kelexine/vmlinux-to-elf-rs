@@ -667,6 +667,7 @@ dependencies = [
  "log",
  "rusqlite",
  "thiserror",
+ "xz2",
 ]
 
 [[package]]

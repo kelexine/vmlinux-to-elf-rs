@@ -19,7 +19,12 @@ log = { version = "0.4", default-features = false }
 thiserror = { version = "2", default-features = false }
 
 rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }
+xz2 = { version = "0.1", optional = true }
 
 [features]
-default = ["db"]
+# `embedded` compiles the 1.8 MB xz-compressed database into the binary and
+# unpacks it on first use (see src/locate.rs), so `cargo install` needs no
+# post-install step.
+default = ["db", "embedded"]
 db = ["dep:rusqlite"]
+embedded = ["dep:xz2"]

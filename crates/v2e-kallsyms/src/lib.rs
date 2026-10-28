@@ -15,6 +15,8 @@
 //!     ├── lib.rs               // crate root, KallsymsFinder orchestrator
 //!     ├── error.rs             // KallsymsError (thiserror)
 //!     ├── cursor.rs            // bounds-checked read cursor over &[u8]
+//!     ├── db_info.rs           // kernel-database lookup (informational logging)
+//!     ├── elf_preprocess.rs    // ELF-input pre-pass: apply .rela.dyn before detection
 //!     ├── symbol.rs            // KallsymsSymbol + KallsymsSymbolType
 //!     ├── version.rs           // find_linux_kernel_version regex
 //!     ├── rela.rs              // ARM64 R_AARCH64_RELATIVE / R_AARCH64_ABS64 scan + apply
@@ -33,6 +35,8 @@
 #![warn(missing_docs)]
 
 pub mod cursor;
+pub mod db_info;
+pub mod elf_preprocess;
 pub mod error;
 pub mod rela;
 pub mod symbol;

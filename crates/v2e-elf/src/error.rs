@@ -41,6 +41,14 @@ pub enum ElfError {
     #[error("this ELF object does not have a section with SH_ALLOC flag")]
     NoAllocSection,
 
+    /// Laying out the file overflowed the address space (a corrupt or
+    /// hostile `sh_addralign` / section size in the input).
+    #[error("ELF layout overflow while placing section {section:?}")]
+    LayoutOverflow {
+        /// Name of the section being placed when the overflow was detected.
+        section: String,
+    },
+
     /// Generic wrapper for I/O failures (rare; used only when serializing
     /// into a writer that itself fails).
     #[error("io error: {0}")]

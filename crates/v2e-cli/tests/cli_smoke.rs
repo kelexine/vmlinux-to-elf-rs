@@ -82,7 +82,7 @@ fn vmlinux_to_elf_no_args_fails() {
 
 #[test]
 fn vmlinuz_decompressor_on_empty_input_exits_nonzero() {
-    //  vmlinuz-decompressor exits 1 on no-compression-found.
+    // Per decision #4, vmlinuz-decompressor exits 1 on no-compression-found.
     let bin = bin_path("vmlinuz-decompressor");
     let tmp = std::env::temp_dir().join("v2e-empty-input.bin");
     let _ = std::fs::write(&tmp, b"not a kernel");
@@ -95,7 +95,7 @@ fn vmlinuz_decompressor_on_empty_input_exits_nonzero() {
             assert_eq!(
                 o.status.code(),
                 Some(1),
-                "expected exit code 1"
+                "expected exit code 1 per decision #4"
             );
         },
         Err(e) => {
