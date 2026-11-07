@@ -16,6 +16,27 @@ use crate::symbol::{KallsymsSymbol, KallsymsSymbolType};
 use crate::version::{KernelVersionInfo, find_linux_kernel_version};
 use v2e_arch::{ArchitectureDetector, ArchitectureName};
 
+/// Logs how long each detection stage took
+/// in N seconds" lines). Cheap enough to leave on: one `Instant` read per
+/// stage.
+struct StepTimer(std::time::Instant);
+
+impl StepTimer {
+    fn start() -> Self {
+        Self(std::time::Instant::now())
+    }
+
+    /// Log the time since the previous lap under `label`, then restart.
+    fn lap(&mut self, label: &str) {
+        let now = std::time::Instant::now();
+        log::debug!(
+            "[~] {label}: {:.3} s",
+            now.duration_since(self.0).as_secs_f64()
+        );
+        self.0 = now;
+    }
+}
+
 /// Configuration for `KallsymsFinder`.
 #[derive(Clone, Debug, Default)]
 pub struct KallsymsFinderConfig {
@@ -90,6 +111,8 @@ impl KallsymsFinder {
     /// # Errors
     /// Returns [`KallsymsError`] on any failure.
     pub fn new(kernel_img: Vec<u8>, cfg: KallsymsFinderConfig) -> Result<Self, KallsymsError> {
+        let mut timer = StepTimer::start();
+
         // Step 0: ELF input? Pre-apply `.rela.dyn` so relocations that patch
         // the kallsyms tables themselves are already resolved.
         let pre = preprocess_elf_rela_table(kernel_img)?;
@@ -102,8 +125,12 @@ impl KallsymsFinder {
             None => false,
         };
 
+        timer.lap("ELF pre-pass");
+
         // Step 1: find Linux kernel version.
         let version = find_linux_kernel_version(&kernel_img)?;
+
+        timer.lap("kernel version search");
 
         // Step 2: guess architecture.
         let mut architecture: Option<ArchitectureName> = None;
@@ -131,22 +158,32 @@ impl KallsymsFinder {
                 .unwrap_or("(unknown)")
         );
 
+        timer.lap("architecture detection");
+
         // Step 2b: kernel database lookup (informational only).
         if let Some(db) = cfg.db.as_deref() {
             crate::db_info::log_db_information(db, &version, elf_machine);
         }
 
-        // Step 3: find kallsyms_token_table.
+        timer.lap("kernel database lookup");
+
+        // Step 3: find kallsyms_token_table. (laps below label the stage that just ended)
         let token_table = find_kallsyms_token_table(&kernel_img)?;
         let tt_offset = token_table.offset;
+
+        timer.lap("token table search");
 
         // Step 4: find kallsyms_token_index. This sets is_big_endian!
         let token_index = find_kallsyms_token_index(&kernel_img, tt_offset)?;
         is_big_endian = token_index.is_big_endian;
 
+        timer.lap("token index search");
+
         // Step 5: find kallsyms_markers.
         let markers = find_kallsyms_markers(&kernel_img, tt_offset, is_big_endian)?;
         let offset_table_element_size = markers.offset_table_element_size;
+
+        timer.lap("markers search");
 
         // Step 6: find kallsyms_names (approximate).
         let names = find_kallsyms_names(&kernel_img, &markers, tt_offset, is_big_endian)?;
@@ -154,6 +191,8 @@ impl KallsymsFinder {
 
         // Build the token table for symbol-name decode.
         let tokens = build_token_table(&kernel_img, tt_offset);
+
+        timer.lap("names search");
 
         // Step 7: find kallsyms_num_syms (uses tokens for the first-symbol-type check).
         let (num_syms, names_offset_final) = find_kallsyms_num_syms(
@@ -167,6 +206,8 @@ impl KallsymsFinder {
         names_offset = names_offset_final;
         let num_symbols = num_syms.num_symbols;
         let num_syms_offset = num_syms.offset;
+
+        timer.lap("num_syms search");
 
         // Step 8: ARM64 RELA scan + apply (only for 64-bit aarch64).
         let mut is_relocated = elf_relocated;
@@ -193,6 +234,8 @@ impl KallsymsFinder {
             }
         }
 
+        timer.lap("RELA scan");
+
         // Step 9: find kallsyms_addresses_or_offsets.
         let addrs = find_addresses_or_offsets(
             &kernel_img,
@@ -209,6 +252,8 @@ impl KallsymsFinder {
             cfg.explicit_base_address,
         )?;
 
+        timer.lap("address table search");
+
         // Step 10: parse the symbol table (decode names + addresses).
         let symbols = parse_symbol_table(
             &kernel_img,
@@ -223,6 +268,8 @@ impl KallsymsFinder {
         for s in &symbols {
             name_to_symbol.insert(s.name.clone(), s.clone());
         }
+
+        timer.lap("symbol table parse");
 
         // Step 11: infer base address if not set.
         if kernel_text_candidate.is_none() {

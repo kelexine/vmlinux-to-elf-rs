@@ -16,3 +16,7 @@ workspace = true
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
+memchr = { version = "2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+regex = { version = "1", default-features = false, features = ["std", "perf"] }

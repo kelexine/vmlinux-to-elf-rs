@@ -207,8 +207,8 @@ impl SymbolEntry {
         }
     }
 
-    /// Parse a symbol-table entry at `offset`. For ELF32, the bitfield
-    /// order in `st_info` differs between LE and BE; we honour that.
+    /// Parse a symbol-table entry at `offset`. `st_info` is one byte,
+    /// `(binding << 4) | type`, regardless of byte order.
     pub fn parse(
         data: &[u8],
         offset: usize,
@@ -231,7 +231,7 @@ impl SymbolEntry {
                 let st_info = data[offset + 12];
                 let st_other = data[offset + 13];
                 let st_shndx = parse_u16(data, offset + 14, be);
-                // 32LE: type-lo/binding-hi.  32BE: binding-lo/type-hi.
+                // st_info = (binding << 4) | type, for both byte orders.
                 let (st_info_type, st_info_binding) = {
                     (
                         StInfoType::from_u8(st_info & 0x0F),
@@ -290,14 +290,11 @@ impl SymbolEntry {
                 buf.extend_from_slice(&ser_u32(self.st_name, be));
                 buf.extend_from_slice(&ser_u32(self.st_value as u32, be));
                 buf.extend_from_slice(&ser_u32(self.st_size as u32, be));
-                // 32-bit: LE = type-lo/binding-hi; BE = binding-lo/type-hi.
-                let st_info: u8 = if be {
-                    (self.st_info_binding.to_u8() & 0x0F)
-                        | ((self.st_info_type.to_u8() & 0x0F) << 4)
-                } else {
-                    (self.st_info_type.to_u8() & 0x0F)
-                        | ((self.st_info_binding.to_u8() & 0x0F) << 4)
-                };
+                // `st_info` is a single byte: (binding << 4) | type, in every
+                // byte order. (An earlier version swapped the nibbles for
+                // big-endian, which mislabelled every symbol in BE output.)
+                let st_info: u8 = (self.st_info_type.to_u8() & 0x0F)
+                    | ((self.st_info_binding.to_u8() & 0x0F) << 4);
                 buf.push(st_info);
                 buf.push(self.st_other);
                 buf.extend_from_slice(&ser_u16(self.st_shndx, be));

@@ -21,4 +21,4 @@ v2e-unpack = { path = "../v2e-unpack" }
 v2e-db     = { path = "../v2e-db", default-features = false }
 thiserror  = { version = "2", default-features = false }
 log        = { version = "0.4", default-features = false }
-regex      = { version = "1", default-features = false, features = ["std", "unicode"] }
+regex      = { version = "1", default-features = false, features = ["std", "unicode", "perf"] }

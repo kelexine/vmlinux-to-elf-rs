@@ -29,7 +29,10 @@ pub struct KernelVersionInfo {
 /// # Errors
 /// Returns [`KallsymsError::NoVersionString`] if no match is found.
 pub fn find_linux_kernel_version(kernel_img: &[u8]) -> Result<KernelVersionInfo, KallsymsError> {
-    let re = Regex::new(r"Linux version (\d+\.[\d.]*\d)[ -~]+")
+    // `(?-u)`: byte semantics, as in the reference's `re` on `bytes`. Without it
+    // `\d` also matches non-ASCII Unicode digits, and the engine cannot use the
+    // fast literal-prefix search.
+    let re = Regex::new(r"(?-u)Linux version (\d+\.[\d.]*\d)[ -~]+")
         .map_err(|_| KallsymsError::NoVersionString)?;
     let caps = re
         .captures(kernel_img)
@@ -65,4 +68,56 @@ pub fn find_linux_kernel_version(kernel_img: &[u8]) -> Result<KernelVersionInfo,
         minor,
         sublevel,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image(banner: &[u8]) -> Vec<u8> {
+        let mut v = vec![0u8; 64];
+        v.extend_from_slice(banner);
+        v.extend_from_slice(&[0u8; 64]);
+        v
+    }
+
+    #[test]
+    fn parses_a_typical_banner() {
+        let img = image(b"Linux version 4.19.127-g1234 (user@host) (gcc 11.2) #1 SMP Tue Jan 1");
+        let v = find_linux_kernel_version(&img).unwrap();
+        assert_eq!((v.major, v.minor, v.sublevel), (4, 19, Some(127)));
+        assert_eq!(v.version_number, "4.19.127");
+        assert!(v.version_string.starts_with("Linux version 4.19.127-g1234"));
+    }
+
+    #[test]
+    fn two_component_versions_have_no_sublevel() {
+        let v = find_linux_kernel_version(&image(b"Linux version 6.8 (x@y) #1")).unwrap();
+        assert_eq!((v.major, v.minor, v.sublevel), (6, 8, None));
+    }
+
+    #[test]
+    fn first_banner_in_the_image_wins() {
+        let mut img = image(b"Linux version 5.4.0 (a@b) #1");
+        img.extend_from_slice(b"\0Linux version 9.9.9 (c@d) #2\0");
+        assert_eq!(
+            find_linux_kernel_version(&img).unwrap().version_number,
+            "5.4.0"
+        );
+    }
+
+    #[test]
+    fn non_ascii_digits_do_not_count() {
+        // Arabic-indic digits are Unicode digits but not ASCII digits; the
+        // reference's byte regex would not match them either.
+        let img = image("Linux version ١٢.٣ (a@b) #1".as_bytes());
+        assert!(find_linux_kernel_version(&img).is_err());
+    }
+
+    #[test]
+    fn missing_or_garbage_input_is_an_error() {
+        assert!(find_linux_kernel_version(&[]).is_err());
+        assert!(find_linux_kernel_version(b"Linux version ").is_err());
+        assert!(find_linux_kernel_version(&[0xFF; 4096]).is_err());
+    }
 }

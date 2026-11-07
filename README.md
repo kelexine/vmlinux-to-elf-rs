@@ -116,7 +116,7 @@ vmlinux-to-elf [--e-machine DECIMAL_NUMBER]
 | 4 | Decompression candidate failures are swallowed silently. | `debug!`-level log per rejected candidate. | Easier debugging. |
 | 5 | XZ codec via `liblzma` (C binding through Python's `lzma` module). | XZ codec via `xz2`/`liblzma` (C binding, documented exception). | Parity and speed. |
 | 6 | LZO codec via `minilzo` (C binding). | Pure-Rust hand-written LZO1X-999 decoder. | No C dependency for this codec. |
-| 7 | `pc_relative` v7.0+ heuristic uses hardcoded ELF offset assumption. | Faithfully ported (with doc-comment flag). | Behavior parity. |
+| 7 | Linux 7.0+ `pc_relative` kallsyms: the base address is read from the first ELF program header of the image, with no check that the image is an ELF. | Same, bounds-checked. For a non-ELF (raw) image it falls back to `--base-address` (or 0) instead of reading garbage or crashing. | Behavior parity, no panic on raw images. |
 | 8 | Malformed section alignment or sizes in an input ELF can misbehave. | Returns an `ElfError::LayoutOverflow` instead of wrapping. | Hostile-input safety. |
 | 9 | Some informational log lines (decompression timings, `Architecture string`, `kallsyms_token_index` offset, relocation-range base guess, null-address percentage, `Reconstructing ELF…`). | Not printed. | Cosmetic; no effect on output. |
 

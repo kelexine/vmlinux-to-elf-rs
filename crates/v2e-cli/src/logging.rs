@@ -17,7 +17,6 @@ pub fn init() {
     ONCE.get_or_init(|| {
         let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
             .format(|buf, record| writeln!(buf, "{}", record.args()))
-            .filter_level(log::LevelFilter::Info)
             .write_style(env_logger::WriteStyle::Auto)
             .try_init();
     });

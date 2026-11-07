@@ -284,12 +284,28 @@ pub fn find_addresses_or_offsets(
                 }
             }
         } else if params.pc_relative {
-            // Read the ELF phdr to find the base address.
+            // The reference assumes `_text` is the first entry (on x86-64
+            // `srso_alias_untrain_ret` and `_stext` share its address).
+            let (Some(&text), Some(&last)) = (tentative.first(), tentative.last()) else {
+                continue;
+            };
+            // Offsets are relative to their own slot, so on a relocatable
+            // kernel they cross zero somewhere in the table (`_text` is
+            // negative or zero, the last entry non-negative). Anything else
+            // is not this layout.
+            if !(text <= 0 && last >= 0) && params.can_skip {
+                continue;
+            }
+            // The first program header's `p_vaddr` is the link address of the
+            // image. Only an ELF image has one; for a raw image fall back to
+            // an explicit `--base-address` (or 0) instead of reading garbage.
+            let base = elf_first_phdr_vaddr(kernel_img, is_64_bits, is_big_endian)
+                .or(explicit_base_address)
+                .unwrap_or(0);
             for (i, &v) in tentative.iter().enumerate() {
-                let addr = explicit_base_address
-                    .unwrap_or(0)
+                let addr = base
                     .wrapping_add(v as u64)
-                    .wrapping_sub(tentative[0] as u64)
+                    .wrapping_sub(text as u64)
                     .wrapping_add((i * offset_byte_size) as u64);
                 addresses.push(addr);
             }
@@ -327,9 +343,37 @@ pub fn find_addresses_or_offsets(
     ))
 }
 
+/// `p_vaddr` of the first program header of an ELF image.
+///
+/// `e_phoff` sits right after `e_entry` (offset
+/// `0x18 + word size`), and `p_vaddr` is at `+0x10` (ELF64) or `+0x08` (ELF32)
+/// inside the entry. Returns `None` for non-ELF input or when any read would
+/// fall outside the image, so hostile or truncated data can never panic.
+#[must_use]
+pub fn elf_first_phdr_vaddr(img: &[u8], is_64_bits: bool, big_endian: bool) -> Option<u64> {
+    if !img.starts_with(b"\x7fELF") {
+        return None;
+    }
+    let word = if is_64_bits { 8 } else { 4 };
+    let read = |off: usize| -> Option<u64> {
+        let bytes = img.get(off..off.checked_add(word)?)?;
+        let mut buf = [0u8; 8];
+        if big_endian {
+            buf[8 - word..].copy_from_slice(bytes);
+            Some(u64::from_be_bytes(buf))
+        } else {
+            buf[..word].copy_from_slice(bytes);
+            Some(u64::from_le_bytes(buf))
+        }
+    };
+    let e_phoff = usize::try_from(read(0x18 + word)?).ok()?;
+    read(e_phoff.checked_add(if is_64_bits { 0x10 } else { 0x08 })?)
+}
+
 #[inline]
 fn read_uint(data: &[u8], off: usize, size: usize, big_endian: bool) -> u64 {
-    if off + size > data.len() {
+    // `checked_add`: a huge `off` must not wrap around and pass the check.
+    if off.checked_add(size).is_none_or(|end| end > data.len()) {
         return 0;
     }
     match size {
@@ -358,5 +402,66 @@ fn read_uint(data: &[u8], off: usize, size: usize, big_endian: bool) -> u64 {
             }
         },
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod phdr_tests {
+    use super::elf_first_phdr_vaddr;
+
+    /// Minimal ELF image: header fields we read plus one program header.
+    fn elf(is_64: bool, be: bool, vaddr: u64) -> Vec<u8> {
+        let word = if is_64 { 8 } else { 4 };
+        let phoff: usize = if is_64 { 64 } else { 52 };
+        let mut img = vec![0u8; phoff + 56];
+        img[..4].copy_from_slice(b"\x7fELF");
+        let put = |img: &mut Vec<u8>, off: usize, v: u64| {
+            let bytes = if be {
+                v.to_be_bytes()[8 - word..].to_vec()
+            } else {
+                v.to_le_bytes()[..word].to_vec()
+            };
+            img[off..off + word].copy_from_slice(&bytes);
+        };
+        put(&mut img, 0x18 + word, phoff as u64);
+        put(&mut img, phoff + if is_64 { 0x10 } else { 0x08 }, vaddr);
+        img
+    }
+
+    #[test]
+    fn reads_the_vaddr_for_all_four_layouts() {
+        assert_eq!(
+            elf_first_phdr_vaddr(&elf(true, false, 0xffff_ffff_8100_0000), true, false),
+            Some(0xffff_ffff_8100_0000)
+        );
+        assert_eq!(
+            elf_first_phdr_vaddr(&elf(true, true, 0xffff_ffff_8100_0000), true, true),
+            Some(0xffff_ffff_8100_0000)
+        );
+        assert_eq!(
+            elf_first_phdr_vaddr(&elf(false, false, 0x8010_0000), false, false),
+            Some(0x8010_0000)
+        );
+        assert_eq!(
+            elf_first_phdr_vaddr(&elf(false, true, 0x8010_0000), false, true),
+            Some(0x8010_0000)
+        );
+    }
+
+    #[test]
+    fn non_elf_and_tiny_input_is_none() {
+        assert_eq!(elf_first_phdr_vaddr(&[], true, false), None);
+        assert_eq!(elf_first_phdr_vaddr(b"MZ\x90\x00", true, false), None);
+        assert_eq!(elf_first_phdr_vaddr(b"\x7fELF", true, false), None);
+    }
+
+    #[test]
+    fn out_of_range_phoff_is_none_not_a_panic() {
+        let mut img = elf(true, false, 1);
+        img[0x20..0x28].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert_eq!(elf_first_phdr_vaddr(&img, true, false), None);
+        let near_end = (img.len() as u64) - 4;
+        img[0x20..0x28].copy_from_slice(&near_end.to_le_bytes());
+        assert_eq!(elf_first_phdr_vaddr(&img, true, false), None);
     }
 }

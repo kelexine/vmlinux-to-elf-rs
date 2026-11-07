@@ -13,6 +13,8 @@
 #            (default: $(dirname "$(command -v vmlinux-to-elf)"))
 #   RS_BIN   directory holding the Rust binaries (default: target/release)
 #   OUT      scratch directory for outputs (default: a fresh mktemp -d)
+#   KEEP     set to 1 to keep scratch files for images that match too
+#            (by default only differing images keep theirs, to save disk)
 #
 # Setup for the reference tool:
 #   python3 -m venv venv && venv/bin/pip install vmlinux-to-elf
@@ -47,7 +49,10 @@ mkdir -p "$OUT"
 failures=0
 
 report() { # report LABEL FILE_A FILE_B -> prints one result line, counts differences
-    if cmp -s "$2" "$3"; then
+    if [ ! -e "$2" ] && [ ! -e "$3" ]; then
+        # Both tools declined to produce output (e.g. nothing to decompress).
+        printf '  %-26s IDENTICAL (no output from either)\n' "$1"
+    elif cmp -s "$2" "$3"; then
         printf '  %-26s IDENTICAL\n' "$1"
     else
         printf '  %-26s DIFF\n' "$1"
@@ -57,6 +62,7 @@ report() { # report LABEL FILE_A FILE_B -> prints one result line, counts differ
 
 for image in "$@"; do
     name=$(basename "$image" | tr -c 'A-Za-z0-9._-' '_')
+    failures_before=$failures
     echo "== $image"
 
     "$PY_BIN/vmlinux-to-elf" "$image" "$OUT/$name.py.elf" >/dev/null 2>&1
@@ -78,6 +84,12 @@ for image in "$@"; do
     "$PY_BIN/kallsyms-finder" "$OUT/$name.py.elf" >"$OUT/$name.kfe.py" 2>/dev/null
     "$RS_BIN/kallsyms-finder" "$OUT/$name.py.elf" >"$OUT/$name.kfe.rs" 2>/dev/null
     report "kallsyms-finder on ELF" "$OUT/$name.kfe.py" "$OUT/$name.kfe.rs"
+
+    # Keep scratch files only for images that differ (or when KEEP=1): a run
+    # over many x86 kernels otherwise writes gigabytes.
+    if [ "$failures" -eq "$failures_before" ] && [ "${KEEP:-0}" != "1" ]; then
+        rm -f "$OUT/$name".*
+    fi
 done
 
 echo

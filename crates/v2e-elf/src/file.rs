@@ -286,7 +286,15 @@ impl ElfFile {
         if let Some(spos) = shstr_filter_pos {
             // Build the new string table from the section names of the
             // filtered sections.
+            // Start from the table's current bytes:
+            // names already present keep their offsets, missing ones are
+            // appended. A fresh table only starts empty when there is nothing
+            // to preserve.
             let mut st = ElfStrtab::new();
+            let existing = &self.sections[filtered_idxs[spos]].section_contents;
+            if !existing.is_empty() {
+                st.set_raw(existing.clone());
+            }
             for s in &mut sections {
                 let off = st.add_string(&s.section_name);
                 s.header.sh_name = off;

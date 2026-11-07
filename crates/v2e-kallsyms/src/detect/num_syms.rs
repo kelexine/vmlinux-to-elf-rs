@@ -35,6 +35,13 @@ pub fn find_kallsyms_num_syms(
     let mut names_offset = names_offset;
     let max_alignment = 256usize;
 
+    // `already_explored[k]` is the number of symbol entries reachable when
+    // starting `k` bytes before `kallsyms_markers` (-1 if invalid). It depends
+    // only on `k` and the image bytes, never on `names_offset`, so it is kept
+    // across retries and only extended: rebuilding it on every 4-byte step back
+    // made this stage quadratic (seconds on a 70 MB kernel).
+    let mut already_explored: Vec<i64> = Vec::new();
+
     loop {
         if names_offset + 1 >= kernel_img.len() {
             return Err(KallsymsError::NamesNotFound);
@@ -68,35 +75,10 @@ pub fn find_kallsyms_num_syms(
             return Err(KallsymsError::NamesNotFound);
         }
         let n = n as usize;
-        let mut already_explored: Vec<i64> = vec![0; n];
-        for unexplored in 0..n {
-            let pos = markers_offset as i64 - unexplored as i64;
-            if pos < 0 || pos as usize >= kernel_img.len() {
-                already_explored[unexplored] = -1;
-                continue;
-            }
-            let next_byte = kernel_img[pos as usize];
-            let symbol_size: i64 = if next_byte & 0x80 != 0 {
-                let hi = (next_byte & 0x7F) as i64;
-                if pos as usize + 1 >= kernel_img.len() {
-                    already_explored[unexplored] = -1;
-                    continue;
-                }
-                let lo = kernel_img[pos as usize + 1] as i64;
-                (hi | (lo << 7)) + 2
-            } else {
-                next_byte as i64 + 1
-            };
-            if next_byte == 0 {
-                already_explored[unexplored] = if unexplored <= 256 { 0 } else { -1 };
-            } else {
-                let next_hop = unexplored as i64 - symbol_size;
-                if next_hop < 0 || already_explored[next_hop as usize] == -1 {
-                    already_explored[unexplored] = -1;
-                } else {
-                    already_explored[unexplored] = already_explored[next_hop as usize] + 1;
-                }
-            }
+        already_explored.reserve(n.saturating_sub(already_explored.len()));
+        for unexplored in already_explored.len()..n {
+            let value = explore_one(kernel_img, markers_offset, unexplored, &already_explored);
+            already_explored.push(value);
         }
         let num_symbols = already_explored[n - 1];
         if num_symbols < 256 {
@@ -137,6 +119,46 @@ pub fn find_kallsyms_num_syms(
             },
             names_offset,
         ));
+    }
+}
+
+/// DP value for the entry that starts `unexplored` bytes before
+/// `markers_offset`: how many symbol entries follow it up to the terminating
+/// zero-size entry, or `-1` when the walk would leave the image, overrun the
+/// markers, or the terminator is implausibly far (> 256 bytes from the end).
+///
+/// `explored` holds the values for all smaller distances.
+fn explore_one(
+    kernel_img: &[u8],
+    markers_offset: usize,
+    unexplored: usize,
+    explored: &[i64],
+) -> i64 {
+    let Some(pos) = markers_offset.checked_sub(unexplored) else {
+        return -1;
+    };
+    let Some(&next_byte) = kernel_img.get(pos) else {
+        return -1;
+    };
+    let symbol_size: i64 = if next_byte & 0x80 != 0 {
+        let Some(&lo) = kernel_img.get(pos + 1) else {
+            return -1;
+        };
+        (i64::from(next_byte & 0x7F) | (i64::from(lo) << 7)) + 2
+    } else {
+        i64::from(next_byte) + 1
+    };
+    if next_byte == 0 {
+        // Last entry of the table.
+        return if unexplored <= 256 { 0 } else { -1 };
+    }
+    let next_hop = unexplored as i64 - symbol_size;
+    if next_hop < 0 {
+        return -1;
+    }
+    match explored.get(next_hop as usize) {
+        Some(&previous) if previous != -1 => previous + 1,
+        _ => -1,
     }
 }
 
